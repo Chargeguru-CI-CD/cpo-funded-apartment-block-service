@@ -80,34 +80,72 @@ def lambda_handler(event, context):
         print('statement_id not found: ',statement_id_response['statusCode'])  
 
 
-# def lambda_handler(event, context):
-#     print('event', event)
+def lambda_handler_test(event, context):
+    print('event', event)
 
-#     COUNTRY_CODE = None
-#     EXPORT_START_DATE = None
-#     EXPORT_END_DATE = None
-#     PERIOD= None
-#     MARGIN_RATE = None
-#     config_json_str = set_config_variables(event)
-#     config_json = json.loads(config_json_str)
-#     if config_json:
-#         print('config_json_str')
-#         print(config_json_str)
-#         COUNTRY_CODE= config_json["COUNTRY_CODE"]
-#         EXPORT_START_DATE = config_json["EXPORT_START_DATE"]
-#         EXPORT_END_DATE = config_json["EXPORT_END_DATE"]
-#         PERIOD= config_json["PERIOD"]
-#         MARGIN_RATE = int(config_json["MARGIN_RATE"])
+    COUNTRY_CODE = None
+    EXPORT_START_DATE = None
+    EXPORT_END_DATE = None
+    PERIOD= None
+    MARGIN_RATE = None
+    config_json_str = set_config_variables(event)
+    config_json = json.loads(config_json_str)
+    if config_json:
+        print('config_json_str')
+        print(config_json_str)
+        COUNTRY_CODE= config_json["COUNTRY_CODE"]
+        EXPORT_START_DATE = config_json["EXPORT_START_DATE"]
+        EXPORT_END_DATE = config_json["EXPORT_END_DATE"]
+        PERIOD= config_json["PERIOD"]
+        MARGIN_RATE = int(config_json["MARGIN_RATE"])
 
-#         # Print the results
-#         print('COUNTRY_CODE :', COUNTRY_CODE)
-#         print('EXPORT_START_DATE :', EXPORT_START_DATE)
-#         print('EXPORT_END_DATE:', EXPORT_END_DATE)
-#         print('PERIOD :', PERIOD)
-#         print('MARGIN_RATE :', MARGIN_RATE)
+        # Print the results
+        print('COUNTRY_CODE :', COUNTRY_CODE)
+        print('EXPORT_START_DATE :', EXPORT_START_DATE)
+        print('EXPORT_END_DATE:', EXPORT_END_DATE)
+        print('PERIOD :', PERIOD)
+        print('MARGIN_RATE :', MARGIN_RATE)
     
-#     generate_export(url,  config_variables)
-#     process_cpo_internal(config_variables)  
+    get_data_by_middleware(url,  config_variables)
+    process_cpo_internal(config_variables)  
+
+
+def get_data_by_middleware(config_variables):
+    url = 'https://partner.chargeguru.com/proxy?block=undefined&queryId=973446c8-33e8-4369-9bd5-fd48efcf8f5f&where[cpo_environment]=ampeco_fr&where[export_start_date]=2024-09-01&where[export_end_date]=2024-09-30'
+    print('get_data_by_middleware started')
+    
+    if config_variables:
+        COUNTRY_CODE = config_variables["COUNTRY_CODE"]  
+        PERIOD = config_variables["PERIOD"]
+        directory = COUNTRY_CODE + '/' + PERIOD + '/'
+    
+    headers = {
+        'content-type': 'application/x-www-form-urlencoded'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers).json()
+
+        # Check if the request was successful (status code 200 and "SUCCEEDED" state)
+        if response["status"]["state"] == "SUCCEEDED":
+            data_array = response["result"]["data_array"]
+            columns = [col["name"] for col in response["manifest"]["schema"]["columns"]]
+
+            # Convert the response data to a DataFrame
+            df = pd.DataFrame(data_array, columns=columns)
+
+            # Ensure proper data types are applied
+            df = df.apply(pd.to_numeric, errors='ignore')  # Converts columns with numeric values
+           
+            # Push the DataFrame to S3 as a CSV
+            csv_data = df.to_csv(sep=';', index=False, header=True)
+            push_csv_to_s3(csv_data, directory + 'chargeguru_chargelog.csv')
+        
+        else:
+            return api_response(500, 'Error: Response state not succeeded')
+        
+    except Exception as e:
+        return api_response(500, 'Error during download: ' + str(e))
 
      
 # Function to set configuration variables
