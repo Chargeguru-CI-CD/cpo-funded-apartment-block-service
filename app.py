@@ -23,6 +23,8 @@ DURATION = os.environ["EXPORT_DURATION"]
 MARGIN_RATE = int(os.environ["MARGIN_RATE"])
 
 #CALLBACK_URL = os.environ['LAMBDA_URL']
+BASE_URL = os.environ['BASE_URL']
+QUERY_ID = os.environ['QUERY_ID']
 WAREHOUSE_URL = os.environ['WAREHOUSE_URL']
 WAREHOUSE_ID = os.environ['WAREHOUSE_ID']
 WAREHOUSE_TOKEN = os.environ['WAREHOUSE_TOKEN']
@@ -31,7 +33,7 @@ EXPORT_API_RESULT_FILE_NAME =  'chargeguru_chargelog.csv'
 ######################################################################
 
 # # lambda entry point
-def lambda_handler(event, context):
+def lambda_handler_old(event, context):
     print('event', event)
 
     COUNTRY_CODE = None
@@ -73,16 +75,15 @@ def lambda_handler(event, context):
                         config_variables = body_json ['config_variables']
                         print('download_url: ',download_url)   
                         download_export_databricks(download_url,  config_variables)
-                        process_cpo_internal(config_variables)       
+                        process_cpo_data(config_variables)       
                 else:
                     print('download_url not found: ',download_url_response['statusCode'])   
     else:
         print('statement_id not found: ',statement_id_response['statusCode'])  
 
 
-def lambda_handler_test(event, context):
-    print('event', event)
-
+def lambda_handler(event,context):
+    
     COUNTRY_CODE = None
     EXPORT_START_DATE = None
     EXPORT_END_DATE = None
@@ -106,46 +107,72 @@ def lambda_handler_test(event, context):
         print('PERIOD :', PERIOD)
         print('MARGIN_RATE :', MARGIN_RATE)
     
-    get_data_by_middleware(url,  config_variables)
-    process_cpo_internal(config_variables)  
+    get_data_by_middleware(BASE_URL, QUERY_ID, config_json)
+    process_cpo_data(config_json)  
 
 
-def get_data_by_middleware(config_variables):
-    url = 'https://partner.chargeguru.com/proxy?block=undefined&queryId=973446c8-33e8-4369-9bd5-fd48efcf8f5f&where[cpo_environment]=ampeco_fr&where[export_start_date]=2024-09-01&where[export_end_date]=2024-09-30'
-    print('get_data_by_middleware started')
-    
+def get_data_by_middleware(base_url,query_id,config_variables):
+   
+   #url = 'https://partner.chargeguru.com/proxy?block=undefined&queryId=5d4b8dff-4202-44d7-979d-c8ee713d15d6?o=649459631911710&p_cpo_environment=ampeco_es&p_end_date=2024-08-30&p_start_date=2024-08-01 '
+    #base_url = "https://partner.chargeguru.com/proxy"
+
+    #query_id = "5d4b8dff-4202-44d7-979d-c8ee713d15d6"
+
+    #query_id = "a309f299-520d-4f04-8b84-cb2c85392358"
+
+    # cpo_environment = "ampeco_es"
+    # start_date = "2024-08-01"
+    # end_date = "2024-08-30"
+
     if config_variables:
-        COUNTRY_CODE = config_variables["COUNTRY_CODE"]  
+        COUNTRY_CODE= config_variables["COUNTRY_CODE"]
+        EXPORT_START_DATE = config_variables["EXPORT_START_DATE"]
+        EXPORT_END_DATE = config_variables["EXPORT_END_DATE"]
+        start_date = get_next_day(EXPORT_START_DATE)
+        end_date = get_next_day(EXPORT_END_DATE)
+        cpo_environment = get_cpo_environment(COUNTRY_CODE)
         PERIOD = config_variables["PERIOD"]
         directory = COUNTRY_CODE + '/' + PERIOD + '/'
-    
-    headers = {
-        'content-type': 'application/x-www-form-urlencoded'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers).json()
 
-        # Check if the request was successful (status code 200 and "SUCCEEDED" state)
-        if response["status"]["state"] == "SUCCEEDED":
-            data_array = response["result"]["data_array"]
-            columns = [col["name"] for col in response["manifest"]["schema"]["columns"]]
+        url = f"{base_url}?block=undefined&queryId={query_id}&where[cpo_environment]={cpo_environment}&where[export_start_date]={start_date}&where[export_end_date]={end_date}"
 
-            # Convert the response data to a DataFrame
-            df = pd.DataFrame(data_array, columns=columns)
+        print('!!!get_data_by_middleware started')
+            
+        headers = {
+            'content-type': 'application/x-www-form-urlencoded'
+        }
+        try:
+            response = requests.get(url, headers=headers).json()
+            # Check if the request was successful (status code 200 and "SUCCEEDED" state)
+            if response["status"]["state"] == "SUCCEEDED":
+                data_array = response["result"]["data_array"]
+                columns = [col["name"] for col in response["manifest"]["schema"]["columns"]]
 
-            # Ensure proper data types are applied
-            df = df.apply(pd.to_numeric, errors='ignore')  # Converts columns with numeric values
-           
-            # Push the DataFrame to S3 as a CSV
-            csv_data = df.to_csv(sep=';', index=False, header=True)
-            push_csv_to_s3(csv_data, directory + 'chargeguru_chargelog.csv')
+                # Convert the response data to a DataFrame
+                df = pd.DataFrame(data_array, columns=columns)
+
+                # Ensure proper data types are applied
+                df = df.apply(pd.to_numeric, errors='ignore')  # Converts columns with numeric values
+            
+                # Push the DataFrame to S3 as a CSV
+                csv_data = df.to_csv(sep=',', index=False, header=True)
+                push_csv_to_s3(csv_data, directory + 'chargeguru_chargelog.csv')
+            
+            else:
+                return api_response(500, 'Error: Response state not succeeded')
+            
+        except Exception as e:
+            return api_response(500, 'Error during download: ' + str(e))
         
-        else:
-            return api_response(500, 'Error: Response state not succeeded')
-        
-    except Exception as e:
-        return api_response(500, 'Error during download: ' + str(e))
+
+
+# function that increments the given date by one day.
+# Parameters: - date_str: A date in 'YYYY-MM-DD' format. Returns: - A new date string in 'YYYY-MM-DD' format, incremented by one day.
+def get_next_day(date_str: str) -> str:
+    date = datetime.strptime(date_str, '%Y-%m-%d')
+    next_day = date + timedelta(days=1)
+    return next_day.strftime('%Y-%m-%d')
+
 
      
 # Function to set configuration variables
@@ -807,20 +834,23 @@ def process_cpo_internal_1(config_variables):
 
 
 
-def process_cpo_internal(config_variables):
-    print('process_cpo_internal started')
-   
+def process_cpo_data(config_variables):
+    
     if config_variables:
         COUNTRY_CODE= config_variables["COUNTRY_CODE"]
-        EXPORT_START_DATE = config_variables["EXPORT_START_DATE"]
-        EXPORT_END_DATE = config_variables["EXPORT_END_DATE"]
+       # EXPORT_START_DATE = config_variables["EXPORT_START_DATE"]
+        #EXPORT_END_DATE = config_variables["EXPORT_END_DATE"]
         PERIOD= config_variables["PERIOD"]
-        MARGIN_RATE= int(config_variables["MARGIN_RATE"])
+       # MARGIN_RATE= int(config_variables["MARGIN_RATE"])
         directory = COUNTRY_CODE +'/'+ PERIOD+'/'
     
 
-    chargelog_csv = retrieve_csv_from_s3(directory+'chargeguru_chargelog_test.csv')    
-    main_instance_data=pd.read_csv(StringIO(chargelog_csv), sep=';')
+    # chargelog_csv = retrieve_csv_from_s3(directory+'chargeguru_chargelog_test.csv')    
+    # main_instance_data=pd.read_csv(StringIO(chargelog_csv), sep=';')
+
+    chargelog_csv = retrieve_csv_from_s3(directory+'chargeguru_chargelog.csv')    
+    main_instance_data=pd.read_csv(StringIO(chargelog_csv), sep=',')
+
     main_instance_data=main_instance_data.reset_index(drop=True)
     main_instance_data = main_instance_data.fillna('')
     
@@ -1104,6 +1134,9 @@ def get_guru_company(country_code):
 def get_cpo_environment(country_code):
      return 'ampeco_' + country_code.lower()
 
+# def get_cpo_environment2(country_code: str) -> Tuple[str, str]:
+#     country_code = country_code.lower()
+#     return (f'be_energised_{country_code}_main', f'ampeco_{country_code}')
     
 
 ######## GLOBAL VARS #########
