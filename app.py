@@ -59,11 +59,11 @@ def lambda_handler(event,context):
         print('PERIOD :', PERIOD)
         print('MARGIN_RATE :', MARGIN_RATE)
     
-    get_data_by_middleware(BASE_URL, QUERY_ID, USE_CASE, config_json)
+    get_data_by_middleware(config_json)
     process_cpo_data(config_json)  
 
 
-def get_data_by_middleware(base_url,query_id,use_case,config_variables):
+def get_data_by_middleware(config_variables):
    
    #url = 'https://partner.chargeguru.com/proxy?block=undefined&queryId=5d4b8dff-4202-44d7-979d-c8ee713d15d6?o=649459631911710&p_cpo_environment=ampeco_es&p_end_date=2024-08-30&p_start_date=2024-08-01 '
     #base_url = "https://partner.chargeguru.com/proxy"
@@ -82,17 +82,17 @@ def get_data_by_middleware(base_url,query_id,use_case,config_variables):
         EXPORT_END_DATE = config_variables["EXPORT_END_DATE"]
         start_date = get_next_day(EXPORT_START_DATE)
         end_date = get_next_day(EXPORT_END_DATE)
-        cpo_environment = get_cpo_environment(COUNTRY_CODE, use_case)
         PERIOD = config_variables["PERIOD"]
         directory = COUNTRY_CODE + '/' + PERIOD + '/'
+        country_code_upper = COUNTRY_CODE.upper()
+     
 
-        print(f"query_id {query_id}")
-
-        url = f"{base_url}?block=undefined&queryId={query_id}&where[cpo_environment]={cpo_environment}&where[start_date]={start_date}&where[end_date]={end_date}"
+        url = f"{BASE_URL}?block=undefined&queryId={QUERY_ID}&where[country_code]={country_code_upper}&where[use_case]={USE_CASE}&where[start_date]={start_date}&where[end_date]={end_date}"
+        
+        
+        
         print(f"url {url}")
-        print('!!!get_data_by_middleware started, cpo_environment')
-        print(cpo_environment)
-            
+       
         headers = {
             'content-type': 'application/x-www-form-urlencoded'
         }
