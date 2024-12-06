@@ -86,11 +86,8 @@ def get_data_by_middleware(config_variables):
         directory = COUNTRY_CODE + '/' + PERIOD + '/'
         country_code_upper = COUNTRY_CODE.upper()
      
-
         url = f"{BASE_URL}?block=undefined&queryId={QUERY_ID}&where[country_code]={country_code_upper}&where[use_case]={USE_CASE}&where[start_date]={start_date}&where[end_date]={end_date}"
-        
-        
-        
+    
         print(f"url {url}")
        
         headers = {

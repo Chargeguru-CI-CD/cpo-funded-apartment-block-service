@@ -1,0 +1,30 @@
+SELECT
+ se.session_id AS SessionId,
+ so.station_owner_name AS StationOwnerName,
+ cc.connector_code AS EVSEId,
+ REPLACE(am.medium_code, 'O', '0') AS CardNumber,
+ date_format(se.session_end_date,'yyyy-dd-MM HH:mm:ss') AS End,
+ CONCAT(
+    LPAD(FLOOR(DATEDIFF(SECOND, se.session_start_date, se.session_end_date) / (60*60)), 2, '0'), ':', 
+    LPAD(FLOOR(MOD(DATEDIFF(SECOND, se.session_start_date, se.session_end_date) / 60, 60)), 2, '0'), ':', 
+    LPAD(FLOOR(MOD(DATEDIFF(SECOND, se.session_start_date, se.session_end_date), 60)), 2, '0')
+  ) AS Duration,
+ ROUND(se.session_energy_Wh / 1000, 2) AS MeterTotal,
+ ROUND(COALESCE(se.cost_amount, 0), 2) AS TotalCosts,
+ ROUND(COALESCE(se.purchase_cost_amount_eur, 0), 2) AS PurchaseTotalCosts,
+ sm.account_holder_c AS SFAccountId,
+ sm.badge_number_c AS SepaMandateCardNumber,
+ sa.name AS ClientName
+FROM cpo.centralised_data.sessions AS se
+LEFT JOIN cpo.centralised_data.connectors AS cc ON cc.connector_id = se.connector_id
+LEFT JOIN cpo.centralised_data.station_owners AS so ON so.station_owner_id = cc.station_owner_id
+LEFT JOIN cpo.centralised_data.authentication_media AS am ON am.medium_id = se.medium_id
+LEFT JOIN cg_business_catalog.salesforce.sepa_mandate_c AS sm ON sm.account_holder_c = am.contact_sf_account_id
+LEFT JOIN cg_business_catalog.salesforce.account AS sa ON sa.id = sm.account_holder_c 
+WHERE se.cpo_environment IN ({{cpo_environment}})
+ AND COALESCE(se.record_end_date, se.session_end_date) >= {{start_date}} AND COALESCE(se.record_end_date, se.session_end_date) <= {{end_date}}
+ AND se.cost_amount > 0 
+ AND se.session_energy_Wh > 0
+ AND se.reimbursement_use_case IN ('FABS')
+ AND COALESCE(se.anomaly_detected, '') NOT IN ('high-energy', 'provider-warning')
+ORDER BY COALESCE(se.record_end_date, se.session_end_date) ASC
